@@ -218,13 +218,21 @@ class BenchmarkBase:
     ) -> bool:
         """Upload results to API and save locally."""
         if self.offline_mode:
-            log.info("OFFLINE MODE: Skipping API upload, saving results locally only")
-            # Save results locally without API call
-            success = self.client.upload_results(
-                test_name=f"{self.benchmark_name}_benchmark",
-                test_results=test_results,
-                test_status=stats["overall_status"],
-                test_metadata={
+            log.info("OFFLINE MODE: Skipping API upload and client calls")
+            # Save results to local file only, no API or client calls
+            import json
+            from datetime import datetime
+            
+            results_dir = self.script_dir / "results"
+            results_dir.mkdir(exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = results_dir / f"{self.benchmark_name}_benchmark_{timestamp}.json"
+            
+            output_data = {
+                "test_name": f"{self.benchmark_name}_benchmark",
+                "test_status": stats["overall_status"],
+                "test_metadata": {
                     "artifact_run_id": self.artifact_run_id,
                     "amdgpu_families": self.amdgpu_families,
                     "benchmark_name": self.benchmark_name,
@@ -232,11 +240,13 @@ class BenchmarkBase:
                     "passed_subtests": stats["passed"],
                     "failed_subtests": stats["failed"],
                 },
-                save_local=True,
-                skip_upload=True,
-                output_dir=str(self.script_dir / "results"),
-            )
-            log.info("Results saved locally")
+                "test_results": test_results,
+            }
+            
+            with open(filename, "w") as f:
+                json.dump(output_data, f, indent=2)
+            
+            log.info(f"Results saved locally to: {filename}")
             return True
         
         log.info("Uploading Results to API")
