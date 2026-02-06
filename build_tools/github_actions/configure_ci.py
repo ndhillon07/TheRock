@@ -316,6 +316,15 @@ def matrix_generator(
 
         # Parse inputs into a targets list.
         input_gpu_targets = families.get("amdgpu_families")
+        # check if families passed in "ALL" , case insensitive, to enable all targets for workflow_dispatch
+        if input_gpu_targets.strip().lower() == "all":
+            input_gpu_targets = ",".join(
+                key for key in lookup_matrix.keys()
+            )
+            print_debug(f"  'ALL' detected, enabling all targets: '{input_gpu_targets}'", bool_verbose=True)
+        selected_target_names = []
+        for key in lookup_matrix.keys():
+            selected_target_names.append(key)
         print_debug(f"  Raw input GPU targets string: '{input_gpu_targets}'", bool_verbose=True)
         # Sanitizing the string to remove any punctuation from the input
         # After replacing punctuation with spaces, turning string input to an array
