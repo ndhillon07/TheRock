@@ -73,6 +73,12 @@ THEROCK_DIR = THIS_SCRIPT_DIR.parent.parent
 # Matrix creation logic based on PR, push, or workflow_dispatch
 # --------------------------------------------------------------------------- #
 
+def print_debug(message: str,bool_verbose: bool = True):
+    """Prints debug message if verbose mode is enabled."""
+    env_var_verbose = os.environ.get("CI_CONFIGURE_VERBOSE_DEBUG","true").lower()
+    is_verbose = bool_verbose and (env_var_verbose == "true" or env_var_verbose == "1")
+    if is_verbose:
+        print(f"[DEBUG] {message}")
 
 def get_pr_labels(args) -> List[str]:
     """Gets a list of labels applied to a pull request."""
@@ -310,6 +316,7 @@ def matrix_generator(
 
         # Parse inputs into a targets list.
         input_gpu_targets = families.get("amdgpu_families")
+        print_debug(f"  Raw input GPU targets string: '{input_gpu_targets}'", bool_verbose=True)
         # Sanitizing the string to remove any punctuation from the input
         # After replacing punctuation with spaces, turning string input to an array
         # (ex: ",gfx94X ,|.gfx1201" -> "gfx94X   gfx1201" -> ["gfx94X", "gfx1201"])
