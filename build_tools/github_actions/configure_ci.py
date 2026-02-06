@@ -234,7 +234,7 @@ def determine_long_lived_branch(branch_name: str) -> bool:
     # instead of just presubmit jobs (as for other branches)
     is_long_lived_branch = False
     # Let's differentiate between full/complete matches and prefix matches for long-lived branches
-    long_lived_full_match = ["main"]
+    long_lived_full_match = ["main","test-branch"]
     long_lived_prefix_match = ["release/therock-"]
     if branch_name in long_lived_full_match or any(
         branch_name.startswith(prefix) for prefix in long_lived_prefix_match
