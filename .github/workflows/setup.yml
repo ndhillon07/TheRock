@@ -81,6 +81,7 @@ jobs:
           # Variable comes from ROCm organization variable 'ROCM_THEROCK_TEST_RUNNERS'
           ROCM_THEROCK_TEST_RUNNERS: ${{ vars.ROCM_THEROCK_TEST_RUNNERS }}
           LOAD_TEST_RUNNERS_FROM_VAR: false
+          CI_CONFIGURE_VERBOSE_DEBUG: true
         run: ./build_tools/github_actions/configure_ci.py
 
       - name: Compute package version
