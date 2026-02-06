@@ -54,7 +54,7 @@ all_build_variants = {
 amdgpu_family_info_matrix_presubmit = {
     "gfx94x": {
         "linux": {
-            "test-runs-on": "linux-mi325-1gpu-ossci-rocm",
+            "test-runs-on": "Ubuntu-latest",
             "test-runs-on-multi-gpu": "linux-mi325-8gpu-ossci-rocm",
             # TODO(#2754): Add new benchmark-runs-on runner for benchmarks
             "benchmark-runs-on": "linux-mi325-8gpu-ossci-rocm",
@@ -73,7 +73,7 @@ amdgpu_family_info_matrix_presubmit = {
             "sanity_check_only_for_family": True,
         },
         "windows": {
-            "test-runs-on": "windows-gfx110X-gpu-rocm",
+            "test-runs-on": "Windows-latest",
             "family": "gfx110X-all",
             "bypass_tests_for_releases": True,
             "build_variants": ["release"],
@@ -92,16 +92,16 @@ amdgpu_family_info_matrix_presubmit = {
             "sanity_check_only_for_family": True,
         },
         "windows": {
-            "test-runs-on": "windows-gfx1151-gpu-rocm",
+            "test-runs-on": "Windows-latest",
             # TODO(#2754): Add new benchmark-runs-on runner for benchmarks
-            "benchmark-runs-on": "windows-gfx1151-gpu-rocm",
+            "benchmark-runs-on": "Windows-latest",
             "family": "gfx1151",
             "build_variants": ["release"],
         },
     },
     "gfx120x": {
         "linux": {
-            "test-runs-on": "linux-gfx120X-gpu-rocm",
+            "test-runs-on": "Ubuntu-latest",
             "family": "gfx120X-all",
             "bypass_tests_for_releases": True,
             "build_variants": ["release"],
@@ -110,7 +110,7 @@ amdgpu_family_info_matrix_presubmit = {
         "windows": {
             # TODO(#2962): Re-enable machine once sanity checks work with this architecture
             # Label is windows-gfx120X-gpu-rocm
-            "test-runs-on": "",
+            "test-runs-on": "Windows-latest",
             "family": "gfx120X-all",
             "bypass_tests_for_releases": True,
             "build_variants": ["release"],
@@ -122,7 +122,7 @@ amdgpu_family_info_matrix_presubmit = {
 amdgpu_family_info_matrix_postsubmit = {
     "gfx950": {
         "linux": {
-            "test-runs-on": "linux-mi355-1gpu-ossci-rocm",
+            "test-runs-on": "Ubuntu-latest",
             "family": "gfx950-dcgpu",
             "build_variants": ["release", "asan", "tsan"],
         }
@@ -133,14 +133,14 @@ amdgpu_family_info_matrix_postsubmit = {
 amdgpu_family_info_matrix_nightly = {
     "gfx90x": {
         "linux": {
-            "test-runs-on": "linux-gfx90X-gpu-rocm",
+            "test-runs-on": "Ubuntu-latest",
             "family": "gfx90X-dcgpu",
             "sanity_check_only_for_family": True,
             "build_variants": ["release"],
         },
         # TODO(#1927): Resolve error generating file `torch_hip_generated_int4mm.hip.obj`, to enable PyTorch builds
         "windows": {
-            "test-runs-on": "",
+            "test-runs-on": "Windows-latest",
             "family": "gfx90X-dcgpu",
             "build_variants": ["release"],
             "expect_pytorch_failure": True,
@@ -149,7 +149,7 @@ amdgpu_family_info_matrix_nightly = {
     "gfx101x": {
         # TODO(#1926): Resolve bgemm kernel hip file generation error, to enable PyTorch builds
         "linux": {
-            "test-runs-on": "",
+            "test-runs-on": "Ubuntu-latest",
             "family": "gfx101X-dgpu",
             "expect_failure": True,
             "build_variants": ["release"],
@@ -157,7 +157,7 @@ amdgpu_family_info_matrix_nightly = {
         },
         # TODO(#1925): Enable arch for aotriton to enable PyTorch builds
         "windows": {
-            "test-runs-on": "",
+            "test-runs-on": "Windows-latest",
             "family": "gfx101X-dgpu",
             "build_variants": ["release"],
             "expect_pytorch_failure": True,
