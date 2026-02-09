@@ -7,7 +7,7 @@
 - [How a Subproject Is Declared](#2-how-a-subproject-is-declared)
 - [The 4-Phase Build Per Component](#3-the-4-phase-build-per-component)
 - [How Dependencies Actually Work](#4-how-dependencies-actually-work)
-- [The Compiler Toolchain System](#5-the-compiler-toolchain-system)
+- [The Compiler Toolchain System (and Bootstrapping)](#5-the-compiler-toolchain-system-and-bootstrapping)
 - [CMake Presets](#6-cmake-presets)
 - [The Full Picture: What Happens When You Build](#7-the-full-picture-what-happens-when-you-build)
 - [Key Files Reference](#8-key-files-reference)
@@ -57,6 +57,35 @@ include(cmake/therock_subproject.cmake)        # The core macro for subprojects
 include(cmake/therock_artifacts.cmake)         # Packaging system
 # ... and a few more
 ```
+
+**What does "build infrastructure" actually mean?**
+
+In CMake, `include()` loads a `.cmake` file and runs it — similar to `import` in
+Python or `#include` in C. These files don't build anything themselves. They
+**define custom functions and macros** that the rest of the project uses.
+
+Think of it like loading a toolbox before you start work. Each file adds
+different tools:
+
+| File loaded | What it defines (the "tools" it adds) |
+| --- | --- |
+| `therock_globals.cmake` | Simple boolean variables like `THEROCK_CONDITION_IS_WINDOWS` so the rest of the code can do `if(THEROCK_CONDITION_IS_WINDOWS)` instead of checking platform details every time |
+| `therock_features.cmake` | The `therock_add_feature()` macro — a way to register optional components (like "math libs") that can be turned on/off with `-D` flags, including automatic dependency resolution (enabling rocBLAS auto-enables HIP) |
+| `therock_amdgpu_targets.cmake` | The `therock_add_amdgpu_target()` and `therock_validate_amdgpu_targets()` macros — registers every known AMD GPU architecture and provides family-based shortcuts to select groups of them |
+| `therock_subproject.cmake` | The `therock_cmake_subproject_declare()` and `therock_cmake_subproject_activate()` macros — **the most important file**. This is the engine that knows how to take a subproject declaration and generate all the Ninja targets, toolchain files, init files, and dependency wiring for it |
+| `therock_artifacts.cmake` | The `therock_provide_artifact()` macro — handles packaging built components into distributable archives |
+| `therock_compiler_config.cmake` | Validates that your system compiler (the one already on your machine) is suitable. On Windows it checks for MSVC (cl.exe); on Linux it may require GCC for certain components |
+| `therock_job_pools.cmake` | Controls parallelism — how many things Ninja is allowed to compile at once (important because LLVM compilation is extremely memory-hungry) |
+
+**None of these files compile code.** They just define the vocabulary
+(functions/macros) that the rest of the `CMakeLists.txt` files use to describe
+what to build and how. The actual compilation happens later when Ninja runs.
+
+> **CMake beginner note:** A CMake "macro" or "function" is just like a function
+> in any programming language. `therock_cmake_subproject_declare(rocBLAS ...)`
+> is calling a function named `therock_cmake_subproject_declare` with `rocBLAS`
+> as its first argument. These functions were defined in the `include()`'d
+> files above.
 
 ### Step 2 — Figure out what GPU to build for
 
@@ -259,26 +288,165 @@ super-project.
 
 ---
 
-## 5. The Compiler Toolchain System
+## 5. The Compiler Toolchain System (and Bootstrapping)
 
-TheRock builds its own compiler (LLVM/Clang) and then uses it to build
-everything else. Three toolchain modes:
+### The chicken-and-egg problem
 
-| Toolchain | Used for | What it does |
-| --- | --- | --- |
-| *(system)* | Third-party libs (zlib, etc.) | Uses your system's gcc/clang |
-| `amd-llvm` | Non-HIP C/C++ projects | Uses the LLVM that TheRock just built |
-| `amd-hip` | GPU projects (rocBLAS, etc.) | Uses LLVM + HIP compiler (hipcc) |
+TheRock needs a compiler to build things. But one of the things it builds **is**
+a compiler (LLVM/Clang). So how does that work?
 
-### What happens when you specify `COMPILER_TOOLCHAIN amd-hip`
+The answer is **bootstrapping** — a technique where you use a simple tool to
+build a better tool:
 
-1. The system generates a **toolchain file** (`rocBLAS_toolchain.cmake`) that:
-   - Points `CMAKE_C_COMPILER` and `CMAKE_CXX_COMPILER` to the built
-     clang/hipcc
-   - Sets `GPU_TARGETS=gfx1100` (from your `-DTHEROCK_AMDGPU_FAMILIES`)
-   - Sets `CMAKE_HIP_ARCHITECTURES=gfx1100`
-   - Adds HIP-specific flags and paths (`--hip-path`, `--hip-device-lib-path`)
-2. Automatically adds a **build dependency** on the compiler being built first
+```
+Your machine already has a compiler installed:
+  - Windows: MSVC (cl.exe), installed with Visual Studio
+  - Linux: GCC (g++) or system Clang
+
+TheRock uses THAT existing compiler to build its own, better compiler (LLVM/Clang).
+Then it uses the newly-built compiler to build everything else.
+```
+
+### The three-stage bootstrap
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ STAGE 1: System compiler builds LLVM                            │
+│                                                                 │
+│ Your system's MSVC or GCC ──compiles──► amd-llvm subproject     │
+│                                                                 │
+│ Input:  LLVM/Clang source code (the compiler/ submodule)        │
+│ Output: build/amd-llvm/dist/lib/llvm/bin/clang                  │
+│         build/amd-llvm/dist/lib/llvm/bin/clang++                │
+│         build/amd-llvm/dist/lib/llvm/bin/lld  (linker)          │
+│                                                                 │
+│ This is just a normal C++ project being compiled. LLVM happens  │
+│ to be a compiler, but it's still "just C++ code" that your      │
+│ system compiler can build like any other program.               │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ STAGE 2: Built LLVM compiles tools and runtimes                 │
+│                                                                 │
+│ amd-llvm's clang/clang++ ──compiles──► ROCR-Runtime, hipcc,     │
+│                                        amd-comgr, hipify, etc.  │
+│                                                                 │
+│ These are C/C++ projects that don't need GPU compilation yet.   │
+│ They use COMPILER_TOOLCHAIN=amd-llvm, which tells the build     │
+│ system: "use the clang we just built, not the system compiler." │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ STAGE 3: LLVM + HIP runtime compiles GPU libraries              │
+│                                                                 │
+│ amd-llvm's clang + HIP headers/tools ──compiles──► rocBLAS,     │
+│                                                     rocFFT,     │
+│                                                     MIOpen, ... │
+│                                                                 │
+│ These projects contain GPU kernel code (.hip files) that needs  │
+│ the HIP compiler. They use COMPILER_TOOLCHAIN=amd-hip, which    │
+│ is clang + extra flags like --hip-path and --hip-device-lib-path│
+│ so it knows how to compile code for your AMD GPU.               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### How does the build system know which compiler to use?
+
+Every subproject declares a `COMPILER_TOOLCHAIN` parameter:
+
+```cmake
+# In compiler/CMakeLists.txt — amd-llvm has NO toolchain specified
+therock_cmake_subproject_declare(amd-llvm
+  EXTERNAL_SOURCE_DIR "amd-llvm"
+  # No COMPILER_TOOLCHAIN line! → uses your system compiler (MSVC/GCC)
+  BUILD_DEPS rocm-cmake
+  ...
+)
+
+# In core/CMakeLists.txt — ROCR uses the built LLVM
+therock_cmake_subproject_declare(ROCR-Runtime
+  COMPILER_TOOLCHAIN amd-llvm       # ← uses the clang we just built
+  RUNTIME_DEPS amd-llvm
+  ...
+)
+
+# In math-libs/CMakeLists.txt — rocRAND uses LLVM + HIP
+therock_cmake_subproject_declare(rocRAND
+  COMPILER_TOOLCHAIN amd-hip        # ← uses clang + HIP extensions
+  RUNTIME_DEPS hip-clr
+  ...
+)
+```
+
+### The three toolchain modes in detail
+
+| Toolchain | Who uses it | Compiler binary used | When to use |
+| --- | --- | --- | --- |
+| *(none/system)* | amd-llvm, third-party libs (zlib, boost) | Your system's MSVC (`cl.exe`) or GCC (`g++`) | For building the compiler itself, and simple C/C++ dependencies that don't need anything special |
+| `amd-llvm` | ROCR-Runtime, rocminfo, hipify | `build/amd-llvm/dist/lib/llvm/bin/clang++` | For C/C++ projects that need the custom LLVM but don't have GPU kernel code |
+| `amd-hip` | rocBLAS, rocFFT, rocRAND, MIOpen, etc. | Same clang++, but with HIP flags added | For projects that contain `.hip` GPU kernel code and need `--hip-path` etc. |
+
+### What a generated toolchain file looks like
+
+When you specify `COMPILER_TOOLCHAIN amd-llvm`, the build system generates a
+file like `build/ROCR-Runtime_toolchain.cmake` containing:
+
+```cmake
+# "Dear CMake, when you configure ROCR-Runtime, use THESE compilers
+#  instead of whatever is on the system PATH."
+set(CMAKE_C_COMPILER
+  "/path/to/build/amd-llvm/dist/lib/llvm/bin/clang"
+  CACHE STRING "Set by TheRock super-project" FORCE)
+set(CMAKE_CXX_COMPILER
+  "/path/to/build/amd-llvm/dist/lib/llvm/bin/clang++"
+  CACHE STRING "Set by TheRock super-project" FORCE)
+set(CMAKE_LINKER
+  "/path/to/build/amd-llvm/dist/lib/llvm/bin/lld"
+  CACHE STRING "Set by TheRock super-project" FORCE)
+```
+
+For `COMPILER_TOOLCHAIN amd-hip`, it adds extra GPU-specific settings:
+
+```cmake
+# Everything from amd-llvm above, PLUS:
+set(GPU_TARGETS "gfx1100" CACHE STRING "From super-project" FORCE)
+set(AMDGPU_TARGETS "gfx1100" CACHE STRING "From super-project" FORCE)
+set(CMAKE_HIP_ARCHITECTURES "gfx1100" CACHE STRING "From super-project" FORCE)
+
+# Tell clang where HIP headers and device libraries live
+set(CMAKE_CXX_FLAGS_INIT "... --hip-path=/path/to/hip-clr/dist ...")
+```
+
+### How does Ninja know to build the compiler first?
+
+When a subproject says `COMPILER_TOOLCHAIN amd-llvm`, the build system
+automatically adds a dependency on `amd-llvm`'s stage stamp file. In Ninja
+terms:
+
+```
+rocBLAS+configure  depends on  amd-llvm/stamp/stage.stamp
+```
+
+That stamp file only exists after amd-llvm is fully compiled and installed.
+So Ninja will **never** try to configure rocBLAS until the compiler is ready.
+This is all automatic — you don't need to think about build ordering.
+
+### Windows note
+
+On Windows, the bootstrapping is slightly different. The core runtime components
+use the **system MSVC compiler** instead of the built LLVM, because some Windows
+components need MSVC-specific features:
+
+```cmake
+# In core/CMakeLists.txt
+if(WIN32)
+  set(_system_toolchain "")         # Stay with MSVC on Windows
+else()
+  set(_system_toolchain "amd-llvm") # Use built LLVM on Linux
+endif()
+```
 
 ### How GPU targets flow through the system
 
